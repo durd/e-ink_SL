@@ -21,6 +21,7 @@
 
 #include "Inkplate.h"             //Include Inkplate library to the sketch
 #include "ArduinoJson.h"
+#include "driver/rtc_io.h" //ESP32 library used for deep sleep and RTC wake up pins
 
 // Create objects from included libraries
 WiFiClientSecure client;
@@ -34,11 +35,12 @@ DynamicJsonDocument doc(50 * 1024);
 // Specify the delay time between 2 POST requests in milliseconds
 #define DELAY_BETWEEN_REQUESTS 10000
 #define uS_TO_S_FACTOR 1000000 // Conversion factor for micro seconds to seconds
-#define TIME_TO_SLEEP  60      // How long ESP32 will be in deep sleep (in seconds)
+#define TIME_TO_SLEEP 60      // How long ESP32 will be in deep sleep (in seconds)
 
 // Enter your WiFi credentials
 const char *ssid = "ssid";
 const char *pass = "pass";
+void setIOExpanderForLowPower();
 
 // Enter your API key for SL Platsuppslag here (if you don't need SL Platsuppslag just set fetchStopInfo to false):
 const String PUAPIKey       = "key";
@@ -50,14 +52,12 @@ const String RTD4siteID     = "9001";
 const String RTD4timeWindow = "60";
 
 const bool fetchStopInfo = false; // Set to false if not using the SL Platsuppslag API.
-
 const String lookForMetros = "false";
 const String lookForBuses  = "true";
 const String lookForTrains = "true";
 const String lookForTrams  = "false";
 const String lookForShips  = "false";
 const String enablePrediction = "true";
-
 const bool lookForStopPointDeviations  = false;
 
 // Specify the API URL to send a POST request
@@ -72,10 +72,14 @@ void setup() {
     // Connect to WiFi
     WiFi.begin(ssid, pass);
     Serial.println("Connecting to WiFi");
-    while (WiFi.status() != WL_CONNECTED)
-    {
+    int waited = 0;
+    while (WiFi.status() != WL_CONNECTED) {
         Serial.print(".");
         delay(500);
+        if (waited == 20) {
+          ESP.restart();
+        }
+        waited++;
     }
     Serial.println();
     Serial.print("Connected to WiFi with IP address ");
@@ -85,7 +89,7 @@ void setup() {
     client.setInsecure();
     delay(1000);
     while (!get_RTD4()) {
-      Serial.println("Retrying get_RTD4()");
+      Serial.println("Retrying get_RTD4() in 5 seconds...");
       delay(5000);
     }
     // while (!do_screen()) {
@@ -95,6 +99,12 @@ void setup() {
     // }
     // get_RTD4();
     do_screen();
+    Serial.print("Battery voltage: ");
+    Serial.println(display.readBattery());
+    Serial.print("Sleeping for ");
+    Serial.print(TIME_TO_SLEEP);
+    Serial.println(" seconds...");
+    rtc_gpio_isolate(GPIO_NUM_12);
     esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR); // Activate wake-up timer -- wake up after 20s here
     esp_deep_sleep_start();                                        // Put ESP32 into deep sleep. Program stops here.
 }
@@ -193,23 +203,33 @@ void do_screen() {
     int cancelled = 0;
     char* line = strdup(ResponseData_Train["LineNumber"]);
     char* destination = strdup(ResponseData_Train["Destination"]);
-    char buf[30];
-    strcpy(buf, line);
-    strcat(buf, " ");
-    strcat(buf, destination);
+    char buf[40];
     char* track = strdup(ResponseData_Train["StopPointDesignation"]);
     char* time = strdup(ResponseData_Train["DisplayTime"]);
     size_t issues = ResponseData_Train["Deviations"].size();
     if (ResponseData_Train["Deviations"]) {
       for (int i = 0; i < ResponseData_Train["Deviations"].size(); i++) {
         if (ResponseData_Train["Deviations"][i]["Consequence"] == "CANCELLED") {
+          strcpy(buf, "--- ");
+          strcat(buf, line);
+          strcat(buf, " ");
+          strcat(buf, destination);
+          strcat(buf, " ---");
           Serial.println("Train cancelled, continuing loop");
           cancelled = 1;
+        } else {
+          strcpy(buf, line);
+          strcat(buf, " ");
+          strcat(buf, destination);
         }
       }
+    } else {
+      strcpy(buf, line);
+      strcat(buf, " ");
+      strcat(buf, destination);
     }
     if (cancelled) {
-      continue;
+      // continue;
     }
     if (ResponseData_Train["PredictionState"] == "NORMAL") {
       prediction = "-";
