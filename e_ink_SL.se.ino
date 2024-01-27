@@ -22,6 +22,9 @@
 #include "Inkplate.h"             //Include Inkplate library to the sketch
 #include "ArduinoJson.h"
 #include "driver/rtc_io.h" //ESP32 library used for deep sleep and RTC wake up pins
+#include "TimeLib.h"
+// #include "AceTime.h"
+// using namespace ace_time;
 
 // Create objects from included libraries
 WiFiClientSecure client;
@@ -38,16 +41,16 @@ DynamicJsonDocument doc(50 * 1024);
 #define TIME_TO_SLEEP 60      // How long ESP32 will be in deep sleep (in seconds)
 
 // Enter your WiFi credentials
-const char *ssid = "ssid";
-const char *pass = "pass";
+const char *ssid = "durd_24";
+const char *pass = "brodin0350";
 void setIOExpanderForLowPower();
 
 // Enter your API key for SL Platsuppslag here (if you don't need SL Platsuppslag just set fetchStopInfo to false):
-const String PUAPIKey       = "key";
+const String PUAPIKey       = "938201c1f5034aa08fbec2e311c985c9";
 // Enter your API key for SL Realtidsinformation 4 here:
-const String RTD4APIKey     = "key";
+const String RTD4APIKey     = "938201c1f5034aa08fbec2e311c985c9";
 // Enter site ID (e.g. 9001 for T-centralen, 9192 for Slussen):
-const String RTD4siteID     = "9001";
+const String RTD4siteID     = "9529";
 // Enter time window (60 minutes is max):
 const String RTD4timeWindow = "60";
 
@@ -88,25 +91,52 @@ void setup() {
     // Use https but don't use a certificate, because the ESP does not know of any root CA's
     client.setInsecure();
     delay(1000);
+    int waited_rtd4 = 0;
     while (!get_RTD4()) {
       Serial.println("Retrying get_RTD4() in 5 seconds...");
       delay(5000);
+      if (waited_rtd4 == 3) {
+        Serial.print("Sleeping for ");
+        Serial.print(TIME_TO_SLEEP);
+        Serial.println(" seconds...");
+        rtc_gpio_isolate(GPIO_NUM_12);
+        esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR); // Activate wake-up timer -- wake up after 20s here
+        esp_deep_sleep_start();                                        // Put ESP32 into deep sleep. Program stops here.
+      }
+      waited_rtd4++;
     }
-    // while (!do_screen()) {
-    //   Serial.println("Retrying do_screen()");
-    //   do_screen();
-    //   delay(5000);
-    // }
-    // get_RTD4();
     do_screen();
     Serial.print("Battery voltage: ");
     Serial.println(display.readBattery());
+    if (checkTime()) {
+      Serial.println("It's after 10pm! Time to sleep 8h!");
+      rtc_gpio_isolate(GPIO_NUM_12);
+      esp_sleep_enable_timer_wakeup(28800 * uS_TO_S_FACTOR); // Activate wake-up timer -- wake up after 20s here
+      esp_deep_sleep_start();                                        // Put ESP32 into deep sleep. Program stops here.
+    }
     Serial.print("Sleeping for ");
     Serial.print(TIME_TO_SLEEP);
     Serial.println(" seconds...");
     rtc_gpio_isolate(GPIO_NUM_12);
     esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR); // Activate wake-up timer -- wake up after 20s here
     esp_deep_sleep_start();                                        // Put ESP32 into deep sleep. Program stops here.
+}
+
+bool checkTime() {
+  struct tm tm = {0};
+  char prBuffer[] = "0000000000000000000";
+
+  JsonObject ResponseData = doc["ResponseData"];
+  const char* LatestUpdate = ResponseData["LatestUpdate"]; // "LatestUpdate": "2023-12-13T22:27:30"
+
+  strptime(LatestUpdate, "%Y-%m-%dT%H:%M:%S", &tm);
+  sprintf(prBuffer, "%04d-%02d-%02dT%02d:%02d:%02d", tm.tm_year, tm.tm_mon, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+  Serial.println(prBuffer);
+  if (tm.tm_hour >= 22) {
+    return 1;
+  } else {
+    return 0;
+  }
 }
 
 bool get_RTD4() {
@@ -160,8 +190,10 @@ bool get_RTD4() {
     }
     // serializeJsonPretty(doc, Serial);
     client.stop();
-    if (doc["StatusCode"] != 0) {
-      Serial.println(strdup(doc["StatusCode"]));
+    int StatusCode = doc["StatusCode"];
+    if (StatusCode != 0) {
+      Serial.print("api error: ");
+      Serial.println(StatusCode);
       return 0;
     }
     return 1;
@@ -179,7 +211,9 @@ void do_screen() {
   display.display();  // Clear everything that has previously been on a screen
 
   JsonObject ResponseData = doc["ResponseData"];
-  display.println(strdup(ResponseData["LatestUpdate"]));
+  display.print(strdup(ResponseData["LatestUpdate"]));
+  display.print(" ");
+  display.println(display.readBattery());
 
   // char* orig = strdup(ResponseData["Trains"][0]["StopAreaName"]);
   // display.printlnUTF8(orig);
