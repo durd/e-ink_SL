@@ -41,16 +41,16 @@ DynamicJsonDocument doc(50 * 1024);
 #define TIME_TO_SLEEP 60      // How long ESP32 will be in deep sleep (in seconds)
 
 // Enter your WiFi credentials
-const char *ssid = "durd_24";
-const char *pass = "brodin0350";
+const char *ssid = "ssid";
+const char *pass = "psk";
 void setIOExpanderForLowPower();
 
 // Enter your API key for SL Platsuppslag here (if you don't need SL Platsuppslag just set fetchStopInfo to false):
-const String PUAPIKey       = "938201c1f5034aa08fbec2e311c985c9";
+const String PUAPIKey       = "key";
 // Enter your API key for SL Realtidsinformation 4 here:
-const String RTD4APIKey     = "938201c1f5034aa08fbec2e311c985c9";
+const String RTD4APIKey     = "key";
 // Enter site ID (e.g. 9001 for T-centralen, 9192 for Slussen):
-const String RTD4siteID     = "9529";
+const String RTD4siteID     = "9001";
 // Enter time window (60 minutes is max):
 const String RTD4timeWindow = "60";
 
